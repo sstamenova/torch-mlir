@@ -377,7 +377,7 @@ private:
   /// Incorporates `knowledge` into the lattice state of `v`.
   ///
   /// This method should be used instead of
-  /// `getLatticeElement(v).join(knowledge)`, because this method knows how to
+  /// `join(knowledge, *getLatticeElement(v))`, because this method knows how to
   /// correctly handle the case of existing static knowledge from the type
   /// of `v`.
   void incorporateKnowledge(Value v, const ValueKnowledge &knowledge);
@@ -600,7 +600,7 @@ void TypeAnalyzer::fillInDTypeGivenDTypeIntAndInputDType(
   else if (matchPattern(dtype, m_TorchConstantInt(&dtypeInt)))
     knowledge.dtype = getTypeForDTypeInteger(dtype.getContext(), dtypeInt);
   else if (auto primDtypeOp = dyn_cast<PrimDtypeOp>(dtype.getDefiningOp()))
-    knowledge.dtype = getLatticeElement(primDtypeOp.a()).getValue().dtype;
+    knowledge.dtype = getLatticeElement(primDtypeOp.a())->getValue().dtype;
 }
 
 void TypeAnalyzer::fillInDTypeGivenDTypeAndDataType(ValueKnowledge &knowledge,
@@ -1012,7 +1012,7 @@ void TypeAnalyzer::incorporateKnowledge(Value v,
   auto updatedKnowledge = ValueKnowledge::meet(
       knowledge, ValueKnowledge::getPessimisticValueState(v));
   assert(updatedKnowledge.hasValue() && "IR has contradictory type!");
-  return getLatticeElement(v).join(updatedKnowledge.getValue());
+  return join(updatedKnowledge.getValue(), *getLatticeElement(v));
 }
 
 void TypeAnalyzer::visitAtenLinearOp(
@@ -1216,7 +1216,7 @@ void TypeAnalyzer::visitAtenCatOp(
 
   auto tensors = llvm::to_vector<4>(
       llvm::map_range(listConstruct.elements(), [&](Value v) -> ValueKnowledge {
-        return getLatticeElement(v).getValue();
+        return getLatticeElement(v)->getValue();
       }));
   for (auto tensor : tensors) {
     auto newDtype = meetElementTypes(knowledge.dtype, tensor.dtype);
