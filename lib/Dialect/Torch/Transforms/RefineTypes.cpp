@@ -1297,13 +1297,13 @@ static Type getMostRefinedStaticType(Value v, TypeAnalyzer &analyzer) {
   };
 
   if (auto tensorType = v.getType().dyn_cast<BaseTensorType>()) {
-    Lattice<ValueKnowledge> *lattice = analyzer.lookupLatticeElement(v);
+    Lattice<ValueKnowledge> *lattice = analyzer.getLatticeElement(v);
     if (!lattice)
       return nullptr;
     const ValueKnowledge &knowledge = lattice->getValue();
     return getRefinedTensorType(tensorType, knowledge);
   } else if (auto optionalType = v.getType().dyn_cast<OptionalType>()) {
-    Lattice<ValueKnowledge> *lattice = analyzer.lookupLatticeElement(v);
+    Lattice<ValueKnowledge> *lattice = analyzer.getLatticeElement(v);
     if (!lattice)
       return nullptr;
     const ValueKnowledge &knowledge = lattice->getValue();
@@ -1317,7 +1317,7 @@ static Type getMostRefinedStaticType(Value v, TypeAnalyzer &analyzer) {
         return containedType;
     }
   } else if (auto scalarType = v.getType().dyn_cast<NumberType>()) {
-    Lattice<ValueKnowledge> *lattice = analyzer.lookupLatticeElement(v);
+    Lattice<ValueKnowledge> *lattice = analyzer.getLatticeElement(v);
     if (!lattice)
       return nullptr;
     const ValueKnowledge &knowledge = lattice->getValue();
