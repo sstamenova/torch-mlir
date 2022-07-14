@@ -1297,16 +1297,16 @@ static Type getMostRefinedStaticType(Value v, TypeAnalyzer &analyzer) {
   };
 
   if (auto tensorType = v.getType().dyn_cast<BaseTensorType>()) {
-    Lattice<ValueKnowledge> *latticeElement = analyzer.lookupLatticeElement(v);
-    if (!latticeElement)
+    Lattice<ValueKnowledge> *lattice = analyzer.lookupLatticeElement(v);
+    if (!lattice)
       return nullptr;
-    const ValueKnowledge &knowledge = latticeElement->getValue();
+    const ValueKnowledge &knowledge = lattice->getValue();
     return getRefinedTensorType(tensorType, knowledge);
   } else if (auto optionalType = v.getType().dyn_cast<OptionalType>()) {
-    Lattice<ValueKnowledge> *latticeElement = analyzer.lookupLatticeElement(v);
-    if (!latticeElement)
+    Lattice<ValueKnowledge> *lattice = analyzer.lookupLatticeElement(v);
+    if (!lattice)
       return nullptr;
-    const ValueKnowledge &knowledge = latticeElement->getValue();
+    const ValueKnowledge &knowledge = lattice->getValue();
     if (knowledge.optional == OptionalKnowledge::isNone)
       return Torch::NoneType::get(v.getContext());
     else if (knowledge.optional == OptionalKnowledge::notNone) {
@@ -1317,11 +1317,10 @@ static Type getMostRefinedStaticType(Value v, TypeAnalyzer &analyzer) {
         return containedType;
     }
   } else if (auto scalarType = v.getType().dyn_cast<NumberType>()) {
-    LatticeElement<ValueKnowledge> *latticeElement =
-        analyzer.lookupLatticeElement(v);
-    if (!latticeElement)
+    Lattice<ValueKnowledge> *lattice = analyzer.lookupLatticeElement(v);
+    if (!lattice)
       return nullptr;
-    const ValueKnowledge &knowledge = latticeElement->getValue();
+    const ValueKnowledge &knowledge = lattice->getValue();
     if (knowledge.kind == torch_upstream::TypeKind::IntType)
       return Torch::IntType::get(v.getContext());
     if (knowledge.kind == torch_upstream::TypeKind::FloatType)
