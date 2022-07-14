@@ -69,6 +69,8 @@
 #include "torch-mlir/Dialect/Torch/Utils/TorchUpstream.h"
 #include "torch-mlir/Dialect/Torch/Utils/Utils.h"
 
+#include "mlir/Analysis/DataFlow/SparseAnalysis.h"
+
 using namespace mlir;
 using namespace mlir::dataflow;
 using namespace mlir::torch;
@@ -357,7 +359,7 @@ public:
   // Compute the knowledge for the results of an op, based on the knowledge of
   // the operands and any information intrinsic to `op`.
   void visitOperation(Operation *op,
-                      ArrayRef<Lattice<ValueKnowledge> *> operands,
+                      ArrayRef<const Lattice<ValueKnowledge> *> operands,
                       ArrayRef<Lattice<ValueKnowledge> *> results) final;
 
 private:
@@ -381,7 +383,7 @@ private:
   void incorporateKnowledge(Value v, const ValueKnowledge &knowledge);
 
   void visitAtenLinearOp(AtenLinearOp op,
-                         ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+                         ArrayRef<const Lattice<ValueKnowledge> *> operands);
   void visitAtenArangeStartStepOp(AtenArangeStartStepOp op);
   void visitAtenArangeStartOp(AtenArangeStartOp op);
   void visitAtenArangeOp(AtenArangeOp op);
@@ -390,49 +392,49 @@ private:
                                    Value dtype);
   void visitReductionAlongAllDimsOp(
       Operation *op, Type dtype,
-      ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+      ArrayRef<const Lattice<ValueKnowledge> *> operands);
   void visitReductionAlongDimIntListOp(
       Operation *op, Value dim, Value keepdim, Type dtype,
-      ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+      ArrayRef<const Lattice<ValueKnowledge> *> operands);
   void visitReductionAlongDimIntOp(
       Operation *op, Value dim, Value keepdim, Type dtype,
-      ArrayRef<LatticeElement<ValueKnowledge> *> operands, int resNum = 0);
+      ArrayRef<const Lattice<ValueKnowledge> *> operands, int resNum = 0);
   template <typename OpTy> void visitScalarToTensorConversionOp(OpTy op);
   void visitAtenTensorOp(AtenTensorOp op);
   template <typename OpTy>
   void visitConstantTensorAllocOp(OpTy op, llvm::Optional<Type> dataType);
   template <typename OpTy>
   void visitConstantTensorAllocLikeOp(
-      OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+      OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands);
   template <typename OpTy>
   void visitConstantTensorNewLikeOp(
-      OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+      OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands);
   template <typename OpTy>
   void
   visitAtenToDtypeLikeOp(OpTy op,
-                         ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+                         ArrayRef<const Lattice<ValueKnowledge> *> operands);
   template <typename OpTy>
   void
   visitTypeConversionOp(OpTy op,
-                        ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+                        ArrayRef<const Lattice<ValueKnowledge> *> operands);
   void visitAtenCatOp(AtenCatOp op,
-                      ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+                      ArrayRef<const Lattice<ValueKnowledge> *> operands);
 
   template <typename OpTy>
   void
   visitAtenSoftmaxLikeOp(OpTy op,
-                         ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+                         ArrayRef<const Lattice<ValueKnowledge> *> operands);
   template <typename OpTy>
   void
   visitAten_SoftmaxLikeOp(OpTy op,
-                          ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+                          ArrayRef<const Lattice<ValueKnowledge> *> operands);
 
   void visitNumToTensorOp(PrimNumToTensorScalarOp op);
   void visitBinaryScalarOp(Operation *op,
-                           ArrayRef<LatticeElement<ValueKnowledge> *> operands);
-  void visitAtenScalarImplicitOp(
-      AtenScalarImplicitOp op,
-      ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+                           ArrayRef<const Lattice<ValueKnowledge> *> operands);
+  void
+  visitAtenScalarImplicitOp(AtenScalarImplicitOp op,
+                            ArrayRef<const Lattice<ValueKnowledge> *> operands);
 };
 } // namespace
 
@@ -1014,7 +1016,7 @@ void TypeAnalyzer::incorporateKnowledge(Value v,
 }
 
 void TypeAnalyzer::visitAtenLinearOp(
-    AtenLinearOp op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    AtenLinearOp op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
   auto input = operands[0]->getValue();
@@ -1082,7 +1084,7 @@ void TypeAnalyzer::visitAtenArangeOp(AtenArangeOp op) {
 
 void TypeAnalyzer::visitReductionAlongAllDimsOp(
     Operation *op, Type dtype,
-    ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
   knowledge.dtype = dtype;
@@ -1093,7 +1095,7 @@ void TypeAnalyzer::visitReductionAlongAllDimsOp(
 // each dim to size one. If \p keepdim is false, the dims are squeezed.
 void TypeAnalyzer::visitReductionAlongDimIntListOp(
     Operation *op, Value dim, Value keepdim, Type dtype,
-    ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
   knowledge.dtype = dtype;
@@ -1102,7 +1104,7 @@ void TypeAnalyzer::visitReductionAlongDimIntListOp(
 
 void TypeAnalyzer::visitReductionAlongDimIntOp(
     Operation *op, Value dim, Value keepdim, Type dtype,
-    ArrayRef<LatticeElement<ValueKnowledge> *> operands, int resNum) {
+    ArrayRef<const Lattice<ValueKnowledge> *> operands, int resNum) {
   assert(dim.getType().isa<Torch::IntType>() && "dim must be int type");
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1121,7 +1123,7 @@ void TypeAnalyzer::visitScalarToTensorConversionOp(OpTy op) {
 }
 
 void TypeAnalyzer::visitBinaryScalarOp(
-    Operation *op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    Operation *op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getScalarPessimisticValueState(op->getContext());
   Type resultType = getPromotedResultScalarType(
@@ -1156,7 +1158,7 @@ void TypeAnalyzer::visitConstantTensorAllocOp(OpTy op,
 
 template <typename OpTy>
 void TypeAnalyzer::visitConstantTensorAllocLikeOp(
-    OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1166,7 +1168,7 @@ void TypeAnalyzer::visitConstantTensorAllocLikeOp(
 
 template <typename OpTy>
 void TypeAnalyzer::visitConstantTensorNewLikeOp(
-    OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1177,7 +1179,7 @@ void TypeAnalyzer::visitConstantTensorNewLikeOp(
 // Convert input tensor type to the given `dtype`.
 template <typename OpTy>
 void TypeAnalyzer::visitAtenToDtypeLikeOp(
-    OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
   Value dtype = op.dtype();
@@ -1190,7 +1192,7 @@ void TypeAnalyzer::visitAtenToDtypeLikeOp(
 // Convert input tensor type to the same as the other tensor.
 template <typename OpTy>
 void TypeAnalyzer::visitTypeConversionOp(
-    OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
   Value other = op.other();
@@ -1204,7 +1206,7 @@ void TypeAnalyzer::visitTypeConversionOp(
 // dimension. The output has the same sizes as the input for all dimensions
 // except the given dimension.
 void TypeAnalyzer::visitAtenCatOp(
-    AtenCatOp op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    AtenCatOp op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto tensorList = op.tensors();
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1243,7 +1245,7 @@ void TypeAnalyzer::visitNumToTensorOp(PrimNumToTensorScalarOp op) {
 // Common template for softmax like ops, eg., log_softmax.
 template <typename OpTy>
 void TypeAnalyzer::visitAtenSoftmaxLikeOp(
-    OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   auto dtype = op.dtype();
   ValueKnowledge knowledge =
@@ -1255,7 +1257,7 @@ void TypeAnalyzer::visitAtenSoftmaxLikeOp(
 // Common template for softmax like ops, eg., log_softmax.(underscore variant)
 template <typename OpTy>
 void TypeAnalyzer::visitAten_SoftmaxLikeOp(
-    OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   ValueKnowledge knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1269,7 +1271,7 @@ void TypeAnalyzer::visitAten_SoftmaxLikeOp(
 
 void TypeAnalyzer::visitAtenScalarImplicitOp(
     AtenScalarImplicitOp op,
-    ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+    ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getScalarPessimisticValueState(op.getContext());
   Type dType = operands[0]->getValue().dtype;
@@ -1295,15 +1297,13 @@ static Type getMostRefinedStaticType(Value v, TypeAnalyzer &analyzer) {
   };
 
   if (auto tensorType = v.getType().dyn_cast<BaseTensorType>()) {
-    LatticeElement<ValueKnowledge> *latticeElement =
-        analyzer.lookupLatticeElement(v);
+    Lattice<ValueKnowledge> *latticeElement = analyzer.lookupLatticeElement(v);
     if (!latticeElement)
       return nullptr;
     const ValueKnowledge &knowledge = latticeElement->getValue();
     return getRefinedTensorType(tensorType, knowledge);
   } else if (auto optionalType = v.getType().dyn_cast<OptionalType>()) {
-    LatticeElement<ValueKnowledge> *latticeElement =
-        analyzer.lookupLatticeElement(v);
+    Lattice<ValueKnowledge> *latticeElement = analyzer.lookupLatticeElement(v);
     if (!latticeElement)
       return nullptr;
     const ValueKnowledge &knowledge = latticeElement->getValue();
