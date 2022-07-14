@@ -56,7 +56,6 @@
 
 #include "PassDetail.h"
 
-#include "mlir/Analysis/DataFlowAnalysis.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinDialect.h"
@@ -71,6 +70,7 @@
 #include "torch-mlir/Dialect/Torch/Utils/Utils.h"
 
 using namespace mlir;
+using namespace mlir::dataflow;
 using namespace mlir::torch;
 using namespace mlir::torch::Torch;
 
@@ -352,15 +352,13 @@ struct ValueKnowledge {
 };
 
 // Forward intraprocedural dataflow for type information.
-class TypeAnalyzer : public ForwardDataFlowAnalysis<ValueKnowledge> {
+class TypeAnalyzer : public SparseDataFlowAnalysis<Lattice<ValueKnowledge>> {
 public:
-  using ForwardDataFlowAnalysis<ValueKnowledge>::ForwardDataFlowAnalysis;
-
   // Compute the knowledge for the results of an op, based on the knowledge of
   // the operands and any information intrinsic to `op`.
-  ChangeResult
-  visitOperation(Operation *op,
-                 ArrayRef<LatticeElement<ValueKnowledge> *> operands) final;
+  void visitOperation(Operation *op,
+                      ArrayRef<Lattice<ValueKnowledge> *> operands,
+                      ArrayRef<Lattice<ValueKnowledge> *> results) final;
 
 private:
   // Get the MLIR type of the tensor dtype given the dtype integer value and the
@@ -380,66 +378,59 @@ private:
   /// `getLatticeElement(v).join(knowledge)`, because this method knows how to
   /// correctly handle the case of existing static knowledge from the type
   /// of `v`.
-  ChangeResult incorporateKnowledge(Value v, const ValueKnowledge &knowledge);
+  void incorporateKnowledge(Value v, const ValueKnowledge &knowledge);
 
-  ChangeResult
-  visitAtenLinearOp(AtenLinearOp op,
-                    ArrayRef<LatticeElement<ValueKnowledge> *> operands);
-  ChangeResult visitAtenArangeStartStepOp(AtenArangeStartStepOp op);
-  ChangeResult visitAtenArangeStartOp(AtenArangeStartOp op);
-  ChangeResult visitAtenArangeOp(AtenArangeOp op);
-  ChangeResult visitAtenArangeLikeOpHelper(Operation *op,
-                                           llvm::Optional<Value> start,
-                                           Value end,
-                                           llvm::Optional<Value> step,
-                                           Value dtype);
-  ChangeResult visitReductionAlongAllDimsOp(
+  void visitAtenLinearOp(AtenLinearOp op,
+                         ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+  void visitAtenArangeStartStepOp(AtenArangeStartStepOp op);
+  void visitAtenArangeStartOp(AtenArangeStartOp op);
+  void visitAtenArangeOp(AtenArangeOp op);
+  void visitAtenArangeLikeOpHelper(Operation *op, llvm::Optional<Value> start,
+                                   Value end, llvm::Optional<Value> step,
+                                   Value dtype);
+  void visitReductionAlongAllDimsOp(
       Operation *op, Type dtype,
       ArrayRef<LatticeElement<ValueKnowledge> *> operands);
-  ChangeResult visitReductionAlongDimIntListOp(
+  void visitReductionAlongDimIntListOp(
       Operation *op, Value dim, Value keepdim, Type dtype,
       ArrayRef<LatticeElement<ValueKnowledge> *> operands);
-  ChangeResult visitReductionAlongDimIntOp(
+  void visitReductionAlongDimIntOp(
       Operation *op, Value dim, Value keepdim, Type dtype,
       ArrayRef<LatticeElement<ValueKnowledge> *> operands, int resNum = 0);
+  template <typename OpTy> void visitScalarToTensorConversionOp(OpTy op);
+  void visitAtenTensorOp(AtenTensorOp op);
   template <typename OpTy>
-  ChangeResult visitScalarToTensorConversionOp(OpTy op);
-  ChangeResult visitAtenTensorOp(AtenTensorOp op);
+  void visitConstantTensorAllocOp(OpTy op, llvm::Optional<Type> dataType);
   template <typename OpTy>
-  ChangeResult visitConstantTensorAllocOp(OpTy op,
-                                          llvm::Optional<Type> dataType);
-  template <typename OpTy>
-  ChangeResult visitConstantTensorAllocLikeOp(
+  void visitConstantTensorAllocLikeOp(
       OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands);
   template <typename OpTy>
-  ChangeResult visitConstantTensorNewLikeOp(
+  void visitConstantTensorNewLikeOp(
       OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands);
   template <typename OpTy>
-  ChangeResult
+  void
   visitAtenToDtypeLikeOp(OpTy op,
                          ArrayRef<LatticeElement<ValueKnowledge> *> operands);
   template <typename OpTy>
-  ChangeResult
+  void
   visitTypeConversionOp(OpTy op,
                         ArrayRef<LatticeElement<ValueKnowledge> *> operands);
-  ChangeResult
-  visitAtenCatOp(AtenCatOp op,
-                 ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+  void visitAtenCatOp(AtenCatOp op,
+                      ArrayRef<LatticeElement<ValueKnowledge> *> operands);
 
   template <typename OpTy>
-  ChangeResult
+  void
   visitAtenSoftmaxLikeOp(OpTy op,
                          ArrayRef<LatticeElement<ValueKnowledge> *> operands);
   template <typename OpTy>
-  ChangeResult
+  void
   visitAten_SoftmaxLikeOp(OpTy op,
                           ArrayRef<LatticeElement<ValueKnowledge> *> operands);
 
-  ChangeResult visitNumToTensorOp(PrimNumToTensorScalarOp op);
-  ChangeResult
-  visitBinaryScalarOp(Operation *op,
-                      ArrayRef<LatticeElement<ValueKnowledge> *> operands);
-  ChangeResult visitAtenScalarImplicitOp(
+  void visitNumToTensorOp(PrimNumToTensorScalarOp op);
+  void visitBinaryScalarOp(Operation *op,
+                           ArrayRef<LatticeElement<ValueKnowledge> *> operands);
+  void visitAtenScalarImplicitOp(
       AtenScalarImplicitOp op,
       ArrayRef<LatticeElement<ValueKnowledge> *> operands);
 };
@@ -619,8 +610,9 @@ void TypeAnalyzer::fillInDTypeGivenDTypeAndDataType(ValueKnowledge &knowledge,
   fillInDTypeGivenDTypeIntAndInputDType(knowledge, dtype, dtypeForDataType);
 }
 
-ChangeResult TypeAnalyzer::visitOperation(
-    Operation *op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
+void TypeAnalyzer::visitOperation(Operation *op,
+                                  ArrayRef<Lattice<ValueKnowledge> *> operands,
+                                  ArrayRef<Lattice<ValueKnowledge> *> results) {
 
   // These ops have results that are dynamically the same as their operands.
   if (isa<TensorStaticInfoCastOp, DerefineOp>(op)) {
@@ -649,9 +641,9 @@ ChangeResult TypeAnalyzer::visitOperation(
           AtenGatherOp, AtenExpandOp, AtenExpandAsOp, AtenBroadcastToOp,
           AtenRepeatOp, AtenConstantPadNdOp, AtenPadOp, AtenZero_Op,
           AtenIndexTensorOp, ValsemVariantAtenIndexPutImplOp, AtenIndexPutOp,
-          ValsemVariantAtenCopyOp, AtenZeroOp,
-          AtenIndexPutHackedTwinOp, AtenMaskedFillScalarOp, AtenFlipOp,
-          PrimAbsScalarOp, AtenNumpyTOp, AtenTriuOp>(op)) {
+          ValsemVariantAtenCopyOp, AtenZeroOp, AtenIndexPutHackedTwinOp,
+          AtenMaskedFillScalarOp, AtenFlipOp, PrimAbsScalarOp, AtenNumpyTOp,
+          AtenTriuOp>(op)) {
     return incorporateKnowledge(op->getResult(0), operands[0]->getValue());
   }
 
@@ -886,7 +878,7 @@ ChangeResult TypeAnalyzer::visitOperation(
     Type firstResDtype = operands[0]->getValue().dtype;
     Type secondResDtype =
         IntegerType::get(op->getContext(), 64, IntegerType::Signed);
-    ChangeResult firstRes = visitReductionAlongDimIntOp(
+    void firstRes = visitReductionAlongDimIntOp(
         maxDim, maxDim.dim(), maxDim.keepdim(), firstResDtype, operands);
     return firstRes |
            visitReductionAlongDimIntOp(maxDim, maxDim.dim(), maxDim.keepdim(),
@@ -1010,18 +1002,18 @@ ChangeResult TypeAnalyzer::visitOperation(
 
   // Otherwise, this is an unknown operation. Just mark all results as
   // having reached a pessimistic fixpoint.
-  return markAllPessimisticFixpoint(op->getResults());
+  return markAllPessimisticFixpoint(results);
 }
 
-ChangeResult
-TypeAnalyzer::incorporateKnowledge(Value v, const ValueKnowledge &knowledge) {
+void TypeAnalyzer::incorporateKnowledge(Value v,
+                                        const ValueKnowledge &knowledge) {
   auto updatedKnowledge = ValueKnowledge::meet(
       knowledge, ValueKnowledge::getPessimisticValueState(v));
   assert(updatedKnowledge.hasValue() && "IR has contradictory type!");
   return getLatticeElement(v).join(updatedKnowledge.getValue());
 }
 
-ChangeResult TypeAnalyzer::visitAtenLinearOp(
+void TypeAnalyzer::visitAtenLinearOp(
     AtenLinearOp op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1045,9 +1037,11 @@ ChangeResult TypeAnalyzer::visitAtenLinearOp(
 }
 
 // Arange like ops returns a 1-D tensor of size ceil(end - start).
-ChangeResult TypeAnalyzer::visitAtenArangeLikeOpHelper(
-    Operation *op, llvm::Optional<Value> start, Value end,
-    llvm::Optional<Value> step, Value dtype) {
+void TypeAnalyzer::visitAtenArangeLikeOpHelper(Operation *op,
+                                               llvm::Optional<Value> start,
+                                               Value end,
+                                               llvm::Optional<Value> step,
+                                               Value dtype) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
   int64_t dtypeInt;
@@ -1073,21 +1067,20 @@ ChangeResult TypeAnalyzer::visitAtenArangeLikeOpHelper(
   return incorporateKnowledge(op->getResult(0), knowledge);
 }
 
-ChangeResult
-TypeAnalyzer::visitAtenArangeStartStepOp(AtenArangeStartStepOp op) {
+void TypeAnalyzer::visitAtenArangeStartStepOp(AtenArangeStartStepOp op) {
   return visitAtenArangeLikeOpHelper(op, op.start(), op.end(), op.step(),
                                      op.dtype());
 }
 
-ChangeResult TypeAnalyzer::visitAtenArangeStartOp(AtenArangeStartOp op) {
+void TypeAnalyzer::visitAtenArangeStartOp(AtenArangeStartOp op) {
   return visitAtenArangeLikeOpHelper(op, op.start(), op.end(), {}, op.dtype());
 }
 
-ChangeResult TypeAnalyzer::visitAtenArangeOp(AtenArangeOp op) {
+void TypeAnalyzer::visitAtenArangeOp(AtenArangeOp op) {
   return visitAtenArangeLikeOpHelper(op, {}, op.end(), {}, op.dtype());
 }
 
-ChangeResult TypeAnalyzer::visitReductionAlongAllDimsOp(
+void TypeAnalyzer::visitReductionAlongAllDimsOp(
     Operation *op, Type dtype,
     ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto knowledge =
@@ -1098,7 +1091,7 @@ ChangeResult TypeAnalyzer::visitReductionAlongAllDimsOp(
 
 // These ops do caculation along the dims given by the integer list and reduce
 // each dim to size one. If \p keepdim is false, the dims are squeezed.
-ChangeResult TypeAnalyzer::visitReductionAlongDimIntListOp(
+void TypeAnalyzer::visitReductionAlongDimIntListOp(
     Operation *op, Value dim, Value keepdim, Type dtype,
     ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto knowledge =
@@ -1107,7 +1100,7 @@ ChangeResult TypeAnalyzer::visitReductionAlongDimIntListOp(
   return incorporateKnowledge(op->getResult(0), knowledge);
 }
 
-ChangeResult TypeAnalyzer::visitReductionAlongDimIntOp(
+void TypeAnalyzer::visitReductionAlongDimIntOp(
     Operation *op, Value dim, Value keepdim, Type dtype,
     ArrayRef<LatticeElement<ValueKnowledge> *> operands, int resNum) {
   assert(dim.getType().isa<Torch::IntType>() && "dim must be int type");
@@ -1118,7 +1111,7 @@ ChangeResult TypeAnalyzer::visitReductionAlongDimIntOp(
 }
 
 template <typename OpTy>
-ChangeResult TypeAnalyzer::visitScalarToTensorConversionOp(OpTy op) {
+void TypeAnalyzer::visitScalarToTensorConversionOp(OpTy op) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op.getContext());
   Value t = op.t();
@@ -1127,7 +1120,7 @@ ChangeResult TypeAnalyzer::visitScalarToTensorConversionOp(OpTy op) {
   return incorporateKnowledge(op.getResult(), knowledge);
 }
 
-ChangeResult TypeAnalyzer::visitBinaryScalarOp(
+void TypeAnalyzer::visitBinaryScalarOp(
     Operation *op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getScalarPessimisticValueState(op->getContext());
@@ -1137,7 +1130,7 @@ ChangeResult TypeAnalyzer::visitBinaryScalarOp(
   return incorporateKnowledge(op->getResult(0), knowledge);
 }
 
-ChangeResult TypeAnalyzer::visitAtenTensorOp(AtenTensorOp op) {
+void TypeAnalyzer::visitAtenTensorOp(AtenTensorOp op) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op.getContext());
   Value data = op.data();
@@ -1151,9 +1144,8 @@ ChangeResult TypeAnalyzer::visitAtenTensorOp(AtenTensorOp op) {
 }
 
 template <typename OpTy>
-ChangeResult
-TypeAnalyzer::visitConstantTensorAllocOp(OpTy op,
-                                         llvm::Optional<Type> dataType) {
+void TypeAnalyzer::visitConstantTensorAllocOp(OpTy op,
+                                              llvm::Optional<Type> dataType) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
   if (!dataType)
@@ -1163,7 +1155,7 @@ TypeAnalyzer::visitConstantTensorAllocOp(OpTy op,
 }
 
 template <typename OpTy>
-ChangeResult TypeAnalyzer::visitConstantTensorAllocLikeOp(
+void TypeAnalyzer::visitConstantTensorAllocLikeOp(
     OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   auto knowledge =
@@ -1173,7 +1165,7 @@ ChangeResult TypeAnalyzer::visitConstantTensorAllocLikeOp(
 }
 
 template <typename OpTy>
-ChangeResult TypeAnalyzer::visitConstantTensorNewLikeOp(
+void TypeAnalyzer::visitConstantTensorNewLikeOp(
     OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   auto knowledge =
@@ -1184,7 +1176,7 @@ ChangeResult TypeAnalyzer::visitConstantTensorNewLikeOp(
 
 // Convert input tensor type to the given `dtype`.
 template <typename OpTy>
-ChangeResult TypeAnalyzer::visitAtenToDtypeLikeOp(
+void TypeAnalyzer::visitAtenToDtypeLikeOp(
     OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1197,7 +1189,7 @@ ChangeResult TypeAnalyzer::visitAtenToDtypeLikeOp(
 
 // Convert input tensor type to the same as the other tensor.
 template <typename OpTy>
-ChangeResult TypeAnalyzer::visitTypeConversionOp(
+void TypeAnalyzer::visitTypeConversionOp(
     OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1211,7 +1203,7 @@ ChangeResult TypeAnalyzer::visitTypeConversionOp(
 // `torch.aten.cat` concatenates the given sequence of seq tensors in the given
 // dimension. The output has the same sizes as the input for all dimensions
 // except the given dimension.
-ChangeResult TypeAnalyzer::visitAtenCatOp(
+void TypeAnalyzer::visitAtenCatOp(
     AtenCatOp op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto tensorList = op.tensors();
   auto knowledge =
@@ -1233,7 +1225,7 @@ ChangeResult TypeAnalyzer::visitAtenCatOp(
   return incorporateKnowledge(op.getResult(), knowledge);
 }
 
-ChangeResult TypeAnalyzer::visitNumToTensorOp(PrimNumToTensorScalarOp op) {
+void TypeAnalyzer::visitNumToTensorOp(PrimNumToTensorScalarOp op) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
   // The resulting type from converting a Scalar into a Tensor is different
@@ -1250,7 +1242,7 @@ ChangeResult TypeAnalyzer::visitNumToTensorOp(PrimNumToTensorScalarOp op) {
 
 // Common template for softmax like ops, eg., log_softmax.
 template <typename OpTy>
-ChangeResult TypeAnalyzer::visitAtenSoftmaxLikeOp(
+void TypeAnalyzer::visitAtenSoftmaxLikeOp(
     OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   auto dtype = op.dtype();
@@ -1262,7 +1254,7 @@ ChangeResult TypeAnalyzer::visitAtenSoftmaxLikeOp(
 
 // Common template for softmax like ops, eg., log_softmax.(underscore variant)
 template <typename OpTy>
-ChangeResult TypeAnalyzer::visitAten_SoftmaxLikeOp(
+void TypeAnalyzer::visitAten_SoftmaxLikeOp(
     OpTy op, ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   ValueKnowledge knowledge =
@@ -1275,7 +1267,7 @@ ChangeResult TypeAnalyzer::visitAten_SoftmaxLikeOp(
   return incorporateKnowledge(op.getResult(), knowledge);
 }
 
-ChangeResult TypeAnalyzer::visitAtenScalarImplicitOp(
+void TypeAnalyzer::visitAtenScalarImplicitOp(
     AtenScalarImplicitOp op,
     ArrayRef<LatticeElement<ValueKnowledge> *> operands) {
   auto knowledge =
