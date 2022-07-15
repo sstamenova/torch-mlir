@@ -56,22 +56,12 @@
 
 #include "PassDetail.h"
 
-// BUGBUG: check for headers to remove
-#include "mlir/IR/BlockAndValueMapping.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinDialect.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/Matchers.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
+#include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "torch-mlir/Dialect/Torch/IR/TorchDialect.h"
 #include "torch-mlir/Dialect/Torch/IR/TorchOps.h"
 #include "torch-mlir/Dialect/Torch/Transforms/Passes.h"
-#include "torch-mlir/Dialect/Torch/Utils/TorchUpstream.h"
 #include "torch-mlir/Dialect/Torch/Utils/Utils.h"
-
-#include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
-#include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 
 using namespace mlir;
 using namespace mlir::dataflow;
@@ -357,8 +347,8 @@ struct ValueKnowledge {
   OptionalKnowledge optional;
 };
 
-/// Define the lattice class explicitly to provide a type ID.
-struct ValueState : public ValueState {
+// Define the lattice class explicitly to provide a type ID.
+struct ValueState : public Lattice<ValueKnowledge> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ValueState)
   using Lattice::Lattice;
 };
@@ -366,6 +356,8 @@ struct ValueState : public ValueState {
 // Forward intraprocedural dataflow for type information.
 class TypeAnalysis : public SparseDataFlowAnalysis<ValueState> {
 public:
+  using SparseDataFlowAnalysis<ValueState>::SparseDataFlowAnalysis;
+
   // Compute the knowledge for the results of an op, based on the knowledge of
   // the operands and any information intrinsic to `op`.
   void visitOperation(Operation *op, ArrayRef<const ValueState *> operands,
@@ -386,7 +378,7 @@ private:
   /// Incorporates `knowledge` into the lattice state of `v`.
   ///
   /// This method should be used instead of
-  /// `join(knowledge, *getLatticeElement(v))`, because this method knows how to
+  /// `getLatticeElement(v)->join(knowledge)`, because this method knows how to
   /// correctly handle the case of existing static knowledge from the type
   /// of `v`.
   void incorporateKnowledge(Value v, const ValueKnowledge &knowledge);
