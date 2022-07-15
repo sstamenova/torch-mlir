@@ -56,6 +56,7 @@
 
 #include "PassDetail.h"
 
+//BUGBUG: check for headers to remove
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinDialect.h"
@@ -70,6 +71,7 @@
 #include "torch-mlir/Dialect/Torch/Utils/Utils.h"
 
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
+#include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 
 using namespace mlir;
 using namespace mlir::dataflow;
@@ -323,6 +325,11 @@ struct ValueKnowledge {
     return None;
   }
 
+  void print(raw_ostream &os) const {
+    os << kind;
+  }
+
+private:
   // The dtype of a tensor.
   // This is equal to nullptr for the follow cases:
   // 1. it is unknown whether the value is a tensor or not, ie the `kind` field
@@ -1297,13 +1304,13 @@ static Type getMostRefinedStaticType(DataFlowSolver &solver, Value v) {
   };
 
   if (auto tensorType = v.getType().dyn_cast<BaseTensorType>()) {
-    auto *lattice = solver.lookupState<Lattice<ValueKnowledge>>(value);
+    auto *lattice = solver.lookupState<Lattice<ValueKnowledge>>(v);
     if (!lattice)
       return nullptr;
     const ValueKnowledge &knowledge = lattice->getValue();
     return getRefinedTensorType(tensorType, knowledge);
   } else if (auto optionalType = v.getType().dyn_cast<OptionalType>()) {
-    auto *lattice = solver.lookupState<Lattice<ValueKnowledge>>(value);
+    auto *lattice = solver.lookupState<Lattice<ValueKnowledge>>(v);
     if (!lattice)
       return nullptr;
     const ValueKnowledge &knowledge = lattice->getValue();
@@ -1317,7 +1324,7 @@ static Type getMostRefinedStaticType(DataFlowSolver &solver, Value v) {
         return containedType;
     }
   } else if (auto scalarType = v.getType().dyn_cast<NumberType>()) {
-    auto *lattice = solver.lookupState<Lattice<ValueKnowledge>>(value);
+    auto *lattice = solver.lookupState<Lattice<ValueKnowledge>>(v);
     if (!lattice)
       return nullptr;
     const ValueKnowledge &knowledge = lattice->getValue();
@@ -1499,13 +1506,13 @@ static void optimize(DataFlowSolver &solver, func::FuncOp func) {
 namespace {
 class RefineTypesPass : public RefineTypesBase<RefineTypesPass> {
   void runOnOperation() override {
-    Operation *op = getOperation();
+    auto func = getOperation();
     DataFlowSolver solver;
     solver.load<DeadCodeAnalysis>();
-    solver.load<IntegerRangeAnalysis>();
-    if (failed(solver.initializeAndRun(op)))
+    solver.load<TypeAnalysis>();
+    if (failed(solver.initializeAndRun(func)))
       return signalPassFailure();
-    optimize(solver, op);
+    optimize(solver, func);
   }
 };
 } // namespace
