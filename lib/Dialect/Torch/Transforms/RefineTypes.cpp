@@ -326,10 +326,9 @@ struct ValueKnowledge {
   }
 
   void print(raw_ostream &os) const {
-    os << kind;
+    os << (int)kind;
   }
 
-private:
   // The dtype of a tensor.
   // This is equal to nullptr for the follow cases:
   // 1. it is unknown whether the value is a tensor or not, ie the `kind` field
