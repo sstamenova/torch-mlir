@@ -354,7 +354,7 @@ struct ValueKnowledge {
 };
 
 // Forward intraprocedural dataflow for type information.
-class TypeAnalyzer : public SparseDataFlowAnalysis<Lattice<ValueKnowledge>> {
+class TypeAnalysis : public SparseDataFlowAnalysis<Lattice<ValueKnowledge>> {
 public:
   // Compute the knowledge for the results of an op, based on the knowledge of
   // the operands and any information intrinsic to `op`.
@@ -591,7 +591,7 @@ static Type getPromotedResultTypeAssumingNonZeroRank(
                                /*skipRankCheck=*/true);
 }
 
-void TypeAnalyzer::fillInDTypeGivenDTypeIntAndInputDType(
+void TypeAnalysis::fillInDTypeGivenDTypeIntAndInputDType(
     ValueKnowledge &knowledge, Value dtype, Type inputDType) {
   assert(isBuiltInType(inputDType) && "`inputDType` must be a builtin type");
   int64_t dtypeInt;
@@ -603,7 +603,7 @@ void TypeAnalyzer::fillInDTypeGivenDTypeIntAndInputDType(
     knowledge.dtype = getLatticeElement(primDtypeOp.a())->getValue().dtype;
 }
 
-void TypeAnalyzer::fillInDTypeGivenDTypeAndDataType(ValueKnowledge &knowledge,
+void TypeAnalysis::fillInDTypeGivenDTypeAndDataType(ValueKnowledge &knowledge,
                                                     Value dtype,
                                                     Type dataType) {
   assert(isa<TorchDialect>(dataType.getDialect()) &&
@@ -612,7 +612,7 @@ void TypeAnalyzer::fillInDTypeGivenDTypeAndDataType(ValueKnowledge &knowledge,
   fillInDTypeGivenDTypeIntAndInputDType(knowledge, dtype, dtypeForDataType);
 }
 
-void TypeAnalyzer::visitOperation(
+void TypeAnalysis::visitOperation(
     Operation *op, ArrayRef<const Lattice<ValueKnowledge> *> operands,
     ArrayRef<Lattice<ValueKnowledge> *> results) {
 
@@ -1007,7 +1007,7 @@ void TypeAnalyzer::visitOperation(
   return markAllPessimisticFixpoint(results);
 }
 
-void TypeAnalyzer::incorporateKnowledge(Value v,
+void TypeAnalysis::incorporateKnowledge(Value v,
                                         const ValueKnowledge &knowledge) {
   auto updatedKnowledge = ValueKnowledge::meet(
       knowledge, ValueKnowledge::getPessimisticValueState(v));
@@ -1015,7 +1015,7 @@ void TypeAnalyzer::incorporateKnowledge(Value v,
   return join(updatedKnowledge.getValue(), *getLatticeElement(v));
 }
 
-void TypeAnalyzer::visitAtenLinearOp(
+void TypeAnalysis::visitAtenLinearOp(
     AtenLinearOp op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1039,7 +1039,7 @@ void TypeAnalyzer::visitAtenLinearOp(
 }
 
 // Arange like ops returns a 1-D tensor of size ceil(end - start).
-void TypeAnalyzer::visitAtenArangeLikeOpHelper(Operation *op,
+void TypeAnalysis::visitAtenArangeLikeOpHelper(Operation *op,
                                                llvm::Optional<Value> start,
                                                Value end,
                                                llvm::Optional<Value> step,
@@ -1069,20 +1069,20 @@ void TypeAnalyzer::visitAtenArangeLikeOpHelper(Operation *op,
   return incorporateKnowledge(op->getResult(0), knowledge);
 }
 
-void TypeAnalyzer::visitAtenArangeStartStepOp(AtenArangeStartStepOp op) {
+void TypeAnalysis::visitAtenArangeStartStepOp(AtenArangeStartStepOp op) {
   return visitAtenArangeLikeOpHelper(op, op.start(), op.end(), op.step(),
                                      op.dtype());
 }
 
-void TypeAnalyzer::visitAtenArangeStartOp(AtenArangeStartOp op) {
+void TypeAnalysis::visitAtenArangeStartOp(AtenArangeStartOp op) {
   return visitAtenArangeLikeOpHelper(op, op.start(), op.end(), {}, op.dtype());
 }
 
-void TypeAnalyzer::visitAtenArangeOp(AtenArangeOp op) {
+void TypeAnalysis::visitAtenArangeOp(AtenArangeOp op) {
   return visitAtenArangeLikeOpHelper(op, {}, op.end(), {}, op.dtype());
 }
 
-void TypeAnalyzer::visitReductionAlongAllDimsOp(
+void TypeAnalysis::visitReductionAlongAllDimsOp(
     Operation *op, Type dtype,
     ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
@@ -1093,7 +1093,7 @@ void TypeAnalyzer::visitReductionAlongAllDimsOp(
 
 // These ops do caculation along the dims given by the integer list and reduce
 // each dim to size one. If \p keepdim is false, the dims are squeezed.
-void TypeAnalyzer::visitReductionAlongDimIntListOp(
+void TypeAnalysis::visitReductionAlongDimIntListOp(
     Operation *op, Value dim, Value keepdim, Type dtype,
     ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
@@ -1102,7 +1102,7 @@ void TypeAnalyzer::visitReductionAlongDimIntListOp(
   return incorporateKnowledge(op->getResult(0), knowledge);
 }
 
-void TypeAnalyzer::visitReductionAlongDimIntOp(
+void TypeAnalysis::visitReductionAlongDimIntOp(
     Operation *op, Value dim, Value keepdim, Type dtype,
     ArrayRef<const Lattice<ValueKnowledge> *> operands, int resNum) {
   assert(dim.getType().isa<Torch::IntType>() && "dim must be int type");
@@ -1113,7 +1113,7 @@ void TypeAnalyzer::visitReductionAlongDimIntOp(
 }
 
 template <typename OpTy>
-void TypeAnalyzer::visitScalarToTensorConversionOp(OpTy op) {
+void TypeAnalysis::visitScalarToTensorConversionOp(OpTy op) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op.getContext());
   Value t = op.t();
@@ -1122,7 +1122,7 @@ void TypeAnalyzer::visitScalarToTensorConversionOp(OpTy op) {
   return incorporateKnowledge(op.getResult(), knowledge);
 }
 
-void TypeAnalyzer::visitBinaryScalarOp(
+void TypeAnalysis::visitBinaryScalarOp(
     Operation *op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getScalarPessimisticValueState(op->getContext());
@@ -1132,7 +1132,7 @@ void TypeAnalyzer::visitBinaryScalarOp(
   return incorporateKnowledge(op->getResult(0), knowledge);
 }
 
-void TypeAnalyzer::visitAtenTensorOp(AtenTensorOp op) {
+void TypeAnalysis::visitAtenTensorOp(AtenTensorOp op) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op.getContext());
   Value data = op.data();
@@ -1146,7 +1146,7 @@ void TypeAnalyzer::visitAtenTensorOp(AtenTensorOp op) {
 }
 
 template <typename OpTy>
-void TypeAnalyzer::visitConstantTensorAllocOp(OpTy op,
+void TypeAnalysis::visitConstantTensorAllocOp(OpTy op,
                                               llvm::Optional<Type> dataType) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1157,7 +1157,7 @@ void TypeAnalyzer::visitConstantTensorAllocOp(OpTy op,
 }
 
 template <typename OpTy>
-void TypeAnalyzer::visitConstantTensorAllocLikeOp(
+void TypeAnalysis::visitConstantTensorAllocLikeOp(
     OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   auto knowledge =
@@ -1167,7 +1167,7 @@ void TypeAnalyzer::visitConstantTensorAllocLikeOp(
 }
 
 template <typename OpTy>
-void TypeAnalyzer::visitConstantTensorNewLikeOp(
+void TypeAnalysis::visitConstantTensorNewLikeOp(
     OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   auto knowledge =
@@ -1178,7 +1178,7 @@ void TypeAnalyzer::visitConstantTensorNewLikeOp(
 
 // Convert input tensor type to the given `dtype`.
 template <typename OpTy>
-void TypeAnalyzer::visitAtenToDtypeLikeOp(
+void TypeAnalysis::visitAtenToDtypeLikeOp(
     OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1191,7 +1191,7 @@ void TypeAnalyzer::visitAtenToDtypeLikeOp(
 
 // Convert input tensor type to the same as the other tensor.
 template <typename OpTy>
-void TypeAnalyzer::visitTypeConversionOp(
+void TypeAnalysis::visitTypeConversionOp(
     OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
@@ -1205,7 +1205,7 @@ void TypeAnalyzer::visitTypeConversionOp(
 // `torch.aten.cat` concatenates the given sequence of seq tensors in the given
 // dimension. The output has the same sizes as the input for all dimensions
 // except the given dimension.
-void TypeAnalyzer::visitAtenCatOp(
+void TypeAnalysis::visitAtenCatOp(
     AtenCatOp op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto tensorList = op.tensors();
   auto knowledge =
@@ -1227,7 +1227,7 @@ void TypeAnalyzer::visitAtenCatOp(
   return incorporateKnowledge(op.getResult(), knowledge);
 }
 
-void TypeAnalyzer::visitNumToTensorOp(PrimNumToTensorScalarOp op) {
+void TypeAnalysis::visitNumToTensorOp(PrimNumToTensorScalarOp op) {
   auto knowledge =
       ValueKnowledge::getTensorPessimisticValueState(op->getContext());
   // The resulting type from converting a Scalar into a Tensor is different
@@ -1244,7 +1244,7 @@ void TypeAnalyzer::visitNumToTensorOp(PrimNumToTensorScalarOp op) {
 
 // Common template for softmax like ops, eg., log_softmax.
 template <typename OpTy>
-void TypeAnalyzer::visitAtenSoftmaxLikeOp(
+void TypeAnalysis::visitAtenSoftmaxLikeOp(
     OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   auto dtype = op.dtype();
@@ -1256,7 +1256,7 @@ void TypeAnalyzer::visitAtenSoftmaxLikeOp(
 
 // Common template for softmax like ops, eg., log_softmax.(underscore variant)
 template <typename OpTy>
-void TypeAnalyzer::visitAten_SoftmaxLikeOp(
+void TypeAnalysis::visitAten_SoftmaxLikeOp(
     OpTy op, ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto input = operands[0]->getValue();
   ValueKnowledge knowledge =
@@ -1269,7 +1269,7 @@ void TypeAnalyzer::visitAten_SoftmaxLikeOp(
   return incorporateKnowledge(op.getResult(), knowledge);
 }
 
-void TypeAnalyzer::visitAtenScalarImplicitOp(
+void TypeAnalysis::visitAtenScalarImplicitOp(
     AtenScalarImplicitOp op,
     ArrayRef<const Lattice<ValueKnowledge> *> operands) {
   auto knowledge =
@@ -1288,7 +1288,7 @@ void TypeAnalyzer::visitAtenScalarImplicitOp(
 
 // Get a the most refined type compatible with ValueKnowledge, or null if that
 // is not possible.
-static Type getMostRefinedStaticType(Value v, TypeAnalyzer &analyzer) {
+static Type getMostRefinedStaticType(DataFlowSolver &solver, Value v) {
   auto getRefinedTensorType = [](BaseTensorType tensorType,
                                  ValueKnowledge const &knowledge) {
     return tensorType
@@ -1297,13 +1297,13 @@ static Type getMostRefinedStaticType(Value v, TypeAnalyzer &analyzer) {
   };
 
   if (auto tensorType = v.getType().dyn_cast<BaseTensorType>()) {
-    Lattice<ValueKnowledge> *lattice = analyzer.getLatticeElement(v);
+    auto *lattice = solver.lookupState<Lattice<ValueKnowledge>>(value);
     if (!lattice)
       return nullptr;
     const ValueKnowledge &knowledge = lattice->getValue();
     return getRefinedTensorType(tensorType, knowledge);
   } else if (auto optionalType = v.getType().dyn_cast<OptionalType>()) {
-    Lattice<ValueKnowledge> *lattice = analyzer.getLatticeElement(v);
+    auto *lattice = solver.lookupState<Lattice<ValueKnowledge>>(value);
     if (!lattice)
       return nullptr;
     const ValueKnowledge &knowledge = lattice->getValue();
@@ -1317,7 +1317,7 @@ static Type getMostRefinedStaticType(Value v, TypeAnalyzer &analyzer) {
         return containedType;
     }
   } else if (auto scalarType = v.getType().dyn_cast<NumberType>()) {
-    Lattice<ValueKnowledge> *lattice = analyzer.getLatticeElement(v);
+    auto *lattice = solver.lookupState<Lattice<ValueKnowledge>>(value);
     if (!lattice)
       return nullptr;
     const ValueKnowledge &knowledge = lattice->getValue();
@@ -1362,11 +1362,11 @@ static bool isSafeToRefineOperandInPlace(OpOperand *use, Type newOperandType) {
   return operationIsValidWithRefinedType(use, newOperandType);
 }
 
-void optimize(func::FuncOp func, TypeAnalyzer &analyzer) {
+static void optimize(DataFlowSolver &solver, func::FuncOp func) {
   func.walk([&](Operation *op) {
     auto convertValuesToMostRefinedType = [&](ValueRange values, OpBuilder &b) {
       for (Value v : values) {
-        Type refinedType = getMostRefinedStaticType(v, analyzer);
+        Type refinedType = getMostRefinedStaticType(solver, v);
         Type originalType = v.getType();
         // No type? Nothing to do.
         if (!refinedType)
@@ -1499,10 +1499,13 @@ void optimize(func::FuncOp func, TypeAnalyzer &analyzer) {
 namespace {
 class RefineTypesPass : public RefineTypesBase<RefineTypesPass> {
   void runOnOperation() override {
-    auto func = getOperation();
-    TypeAnalyzer analyzer(&getContext());
-    analyzer.run(func);
-    optimize(func, analyzer);
+    Operation *op = getOperation();
+    DataFlowSolver solver;
+    solver.load<DeadCodeAnalysis>();
+    solver.load<IntegerRangeAnalysis>();
+    if (failed(solver.initializeAndRun(op)))
+      return signalPassFailure();
+    optimize(solver, op);
   }
 };
 } // namespace
