@@ -1018,7 +1018,7 @@ void TypeAnalysis::incorporateKnowledge(Value v,
   auto updatedKnowledge = ValueKnowledge::meet(
       knowledge, ValueKnowledge::getPessimisticValueState(v));
   assert(updatedKnowledge.hasValue() && "IR has contradictory type!");
-  return join(updatedKnowledge.getValue(), *getLatticeElement(v));
+  getLatticeElement(v)->join(updatedKnowledge.getValue());
 }
 
 void TypeAnalysis::visitAtenLinearOp(
