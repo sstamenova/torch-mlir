@@ -56,6 +56,7 @@
 
 #include "PassDetail.h"
 
+#include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "torch-mlir/Dialect/Torch/IR/TorchDialect.h"
@@ -315,7 +316,7 @@ struct ValueKnowledge {
     return None;
   }
 
-  void print(raw_ostream &os) const { os << (int)kind; }
+  void print(raw_ostream &os) const { os << (int)kind; } // BUGBUG: better print
 
   // The dtype of a tensor.
   // This is equal to nullptr for the follow cases:
@@ -1491,6 +1492,7 @@ class RefineTypesPass : public RefineTypesBase<RefineTypesPass> {
     auto func = getOperation();
     DataFlowSolver solver;
     solver.load<DeadCodeAnalysis>();
+    solver.load<SparseConstantPropagation>();
     solver.load<TypeAnalysis>();
     if (failed(solver.initializeAndRun(func)))
       return signalPassFailure();
